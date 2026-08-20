@@ -20,7 +20,7 @@ logs_df = conn.read(worksheet="Sheet2", ttl="10m").dropna(how="all")
 if "Tipo" not in logs_df.columns:
     logs_df["Tipo"] = ""
 
-st.title("Mentoríaslandia 2.0")
+st.title("Registro de Reuniones para Mentores")
 
 # --- 2. Smart Login System ---
 if "role" not in st.session_state:
@@ -28,7 +28,7 @@ if "role" not in st.session_state:
     st.session_state.current_user = None
 
 if st.session_state.role is None:
-    st.info("Por favor, inicia sesión para continuar.")
+    st.info("Por favor, inicie sesión para continuar.")
     
     # Get list of mentors + Admin
     mentor_list = directory_df["Mentor"].dropna().unique().tolist()
@@ -67,9 +67,9 @@ with st.sidebar:
 # ==========================================
 if st.session_state.role == "Mentor":
     current_mentor = st.session_state.current_user
-    st.header(f"Buenas las tenga, {current_mentor}")
+    st.header(f"¿Qué desea hacer hoy, {current_mentor}?")
     
-    tab1, tab2 = st.tabs(["📝 Registrar Reunión", "📊 Mis Reuniones"])
+    tab1, tab2 = st.tabs(["Registrar Reunión", "Ver Registro de Reuniones"])
     
     with tab1:
         with st.container(border=True):
@@ -121,7 +121,7 @@ if st.session_state.role == "Mentor":
         
         # --- 1. The Course Filter ---
         mentor_cursos = directory_df[directory_df["Mentor"] == current_mentor]["Curso"].unique()
-        selected_filter = st.selectbox("📌 Filtrar por Curso", ["Todos"] + list(mentor_cursos))
+        selected_filter = st.selectbox("Filtrar por Curso", ["Todos"] + list(mentor_cursos))
         
         # --- 2. Filter the Data based on selection ---
         if selected_filter == "Todos":
@@ -138,13 +138,13 @@ if st.session_state.role == "Mentor":
             ].copy()
 
         # --- 3. Macro View: Titular Meetings ---
-        st.markdown("##### 🏫 Progreso con Director de Grupo (Por Curso)")
+        st.markdown("##### Progreso con Director de Grupo (Por Curso)")
         display_cursos = view_dir["Curso"].unique()
         titular_cols = st.columns(len(display_cursos) if len(display_cursos) > 0 else 1)
         
         for idx, curso in enumerate(display_cursos):
             with titular_cols[idx]:
-                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Titular")]
+                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Director de Grupo")]
                 hr_count = len(hr_logs)
                 
                 with st.container(border=True):
@@ -155,7 +155,7 @@ if st.session_state.role == "Mentor":
         st.divider()
 
         # --- 4. Micro View: Student & Family Meetings ---
-        st.markdown("##### 👥 Progreso por Estudiante")
+        st.markdown("##### Progreso por Estudiante")
         
         if view_dir.empty:
             st.info("No hay estudiantes asignados a esta vista.")
@@ -199,64 +199,83 @@ if st.session_state.role == "Mentor":
 # --- 4. ADMIN WORKSPACE (Jaimelandia) ---
 # ==========================================
 elif st.session_state.role == "Admin":
-    st.header("Jaimelandia (me da guayabo cambiar el título :( )")
+    st.header("Jaimelandia")
     
-    mentor_list = directory_df["Mentor"].dropna().unique()
-    view_employee = st.selectbox("Filtrar por mentor", ["Todos"] + list(mentor_list))
+    # Split the admin view into Visuals and Raw Data
+    tab_progreso, tab_datos = st.tabs(["Progreso por Curso", "Auditoría de Datos"])
+    
+    with tab_progreso:
+        mentor_list = directory_df["Mentor"].dropna().unique()
+        view_employee = st.selectbox("Filtro Principal: Mentor", ["Todos"] + list(mentor_list))
 
-    if view_employee == "Todos":
-        view_df = directory_df
-        view_logs = logs_df
-    else:
-        view_df = directory_df[directory_df["Mentor"] == view_employee]
-        view_logs = logs_df[logs_df["Mentor"] == view_employee]
+        if view_employee == "Todos":
+            view_dir = directory_df
+            view_logs = logs_df
+        else:
+            view_dir = directory_df[directory_df["Mentor"] == view_employee]
+            view_logs = logs_df[logs_df["Mentor"] == view_employee]
 
-    # --- MACRO VIEW: Titular/HR Meetings (Per Curso) ---
-    st.subheader("🏢 Reuniones con Director de Grupo (Meta: 15 por Curso)")
-    departments = view_df["Curso"].unique()
-    dept_cols = st.columns(len(departments) if len(departments) > 0 else 1)
-
-    for idx, dept in enumerate(departments):
-        with dept_cols[idx]:
-            # Count ONLY "Titular" meetings for this specific class
-            hr_logs = view_logs[(view_logs["Curso"] == dept) & (view_logs["Tipo"] == "Director de Grupo")]
-            hr_count = len(hr_logs)
-            hr_progress = min(hr_count / GOAL_TITULAR, 1.0)
+        # Get unique courses based on the filter
+        display_cursos = view_dir["Curso"].unique()
+        
+        if len(display_cursos) == 0:
+            st.info("No hay estudiantes asignados para mostrar.")
             
-            with st.container(border=True):
-                st.markdown(f"**Curso: {dept}**")
-                st.metric(label="Reuniones con Director de Grupo", value=f"{hr_count} / {GOAL_TITULAR}")
-                st.progress(hr_progress)
-
-    st.divider()
-
-    # --- MICRO VIEW: Estudiante & Familia Meetings ---
-    st.subheader("Progreso Individual (Estudiante y Familia)")
-
-    clients_to_display = view_df.to_dict('records')
-    client_cols = st.columns(3) # Wider columns to fit both progress bars
-
-    for idx, row in enumerate(clients_to_display):
-        client_name = row["Estudiante"]
-        emp_name = row["Mentor"]
-        dept_name = row["Curso"]
-        
-        # Filter logs for this specific student
-        student_logs = view_logs[view_logs["Estudiante"] == client_name]
-        
-        # Count types
-        count_estudiante = len(student_logs[student_logs["Tipo"] == "Estudiante"])
-        count_familia = len(student_logs[student_logs["Tipo"] == "Familia"])
-        
-        with client_cols[idx % 3]:
-            with st.container(border=True):
-                st.markdown(f"**{client_name}**")
-                st.caption(f"{dept_name} | Mentor: {emp_name}")
+        # Group everything inside a neat collapsible "folder" per Curso
+        for curso in display_cursos:
+            with st.expander(f"📁 Curso: {curso}", expanded=False):
                 
-                # Student Progress
-                st.write(f"Estudiante: {count_estudiante} / {GOAL_ESTUDIANTE}")
-                st.progress(min(count_estudiante / GOAL_ESTUDIANTE, 1.0))
+                # --- 1. Titular Progress (Top of the course folder) ---
+                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Director de Grupo")]
+                hr_count = len(hr_logs)
                 
-                # Family Progress
-                st.write(f"Familia: {count_familia} / {GOAL_FAMILIA}")
-                st.progress(min(count_familia / GOAL_FAMILIA, 1.0))
+                st.markdown("##### 🏫 Progreso con Titular")
+                st.progress(min(hr_count / GOAL_TITULAR, 1.0))
+                st.caption(f"Reuniones registradas: {hr_count} / {GOAL_TITULAR}")
+                
+                st.divider()
+                
+                # --- 2. Students Progress (Grid inside the course folder) ---
+                st.markdown("##### 👥 Progreso de Estudiantes y Familias")
+                
+                # Filter students just for this specific course
+                students_in_course = view_dir[view_dir["Curso"] == curso].to_dict('records')
+                st_cols = st.columns(3)
+                
+                for idx, row in enumerate(students_in_course):
+                    s_name = row["Estudiante"]
+                    s_mentor = row["Mentor"]
+                    
+                    # Filter logs for this specific student
+                    s_logs = view_logs[view_logs["Estudiante"] == s_name]
+                    c_est = len(s_logs[s_logs["Tipo"] == "Estudiante"])
+                    c_fam = len(s_logs[s_logs["Tipo"] == "Familia"])
+                    
+                    with st_cols[idx % 3]:
+                        with st.container(border=True):
+                            st.markdown(f"**{s_name}**")
+                            # If viewing 'Todos', remind the Admin who mentors this student
+                            if view_employee == "Todos":
+                                st.caption(f"Mentor: {s_mentor}")
+                            
+                            st.write(f"Estudiante: {c_est} / {GOAL_ESTUDIANTE}")
+                            st.progress(min(c_est / GOAL_ESTUDIANTE, 1.0))
+                            
+                            st.write(f"Familia: {c_fam} / {GOAL_FAMILIA}")
+                            st.progress(min(c_fam / GOAL_FAMILIA, 1.0))
+                            
+    with tab_datos:
+        st.subheader("Buscador de Registros")
+        st.markdown("Aquí puedes buscar, ordenar y exportar un archivo CSV con todas las reuniones registradas históricamente.")
+        
+        if logs_df.empty:
+            st.info("Aún no hay reuniones registradas en la base de datos.")
+        else:
+            # Show the cleanest version of the raw logs, newest first
+            display_all_logs = logs_df.sort_values(by="Fecha", ascending=False)[["Fecha", "Mentor", "Curso", "Tipo", "Estudiante"]]
+            
+            st.dataframe(
+                display_all_logs,
+                use_container_width=True,
+                hide_index=True
+            )
