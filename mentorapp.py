@@ -19,7 +19,8 @@ logs_df = conn.read(worksheet="Sheet2", ttl="10m").dropna(how="all")
 # Ensure all expected columns exist in logs to prevent errors
 if "Tipo" not in logs_df.columns:
     logs_df["Tipo"] = ""
-
+if "Comentarios" not in logs_df.columns:
+    logs_df["Comentarios"] = ""
 st.title("Registro de Reuniones para Mentores")
 
 # --- 2. Smart Login System ---
@@ -76,17 +77,14 @@ if st.session_state.role == "Mentor":
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                # Filter to only show this mentor's courses
                 dept_list = directory_df[directory_df["Mentor"] == current_mentor]["Curso"].unique()
                 selected_dept = st.selectbox("1. Curso", dept_list)
                 
             with col2:
-                # Select the type of meeting
-                meeting_type = st.selectbox("2. Tipo de Reunión", ["Estudiante", "Familia", "Director de Grupo"])
+                meeting_type = st.selectbox("2. Tipo de Reunión", ["Estudiante", "Familia", "Titular"])
                 
             with col3:
-                # If meeting is HR/Titular, Estudiante is N/A because it's for the whole class
-                if meeting_type == "Director de Grupo":
+                if meeting_type == "Titular":
                     selected_client = st.selectbox("3. Estudiante", ["N/A (Aplica a todo el curso)"], disabled=True)
                 else:
                     client_list = directory_df[
@@ -98,23 +96,39 @@ if st.session_state.role == "Mentor":
             with col4:
                 meeting_date = st.date_input("4. Fecha", value=date.today())
 
+            # --- NEW: Comments Section ---
+            meeting_comments = st.text_area("5. Comentarios (Opcional)", placeholder="Escribe aquí los acuerdos principales, observaciones o notas de la reunión...")
+
             if st.button("Guardar Reunión", type="primary"):
                 new_entry = pd.DataFrame([{
                     "Fecha": meeting_date.strftime("%Y-%m-%d"),
                     "Mentor": current_mentor,
                     "Curso": selected_dept,
                     "Estudiante": selected_client,
-                    "Tipo": meeting_type
+                    "Tipo": meeting_type,
+                    "Comentarios": meeting_comments # Saving the new comments
                 }])
-
-                logs_df = pd.concat([logs_df,new_entry],ignore_index=True)
-
-                #updated_logs = pd.concat([logs_df, new_entry], ignore_index=True)
+                
+                logs_df = pd.concat([logs_df, new_entry], ignore_index=True)
                 conn.update(worksheet="Sheet2", data=logs_df)
                 st.cache_data.clear()
                 
                 st.success(f"¡Reunión de {meeting_type} registrada exitosamente!")
                 st.balloons()
+                
+        # --- NEW: "Recent Logs" Display ---
+        st.divider()
+        st.markdown("##### 🕒 Tus últimos 5 registros")
+        
+        # Grab the mentor's logs, take only the last 5 added, and reverse the order so the newest is at the very top
+        mentor_recent_logs = logs_df[logs_df["Mentor"] == current_mentor].tail(5).copy()
+        
+        if mentor_recent_logs.empty:
+            st.info("Aún no has registrado reuniones.")
+        else:
+            mentor_recent_logs = mentor_recent_logs.iloc[::-1] 
+            display_recent = mentor_recent_logs[["Fecha", "Curso", "Tipo", "Estudiante", "Comentarios"]]
+            st.dataframe(display_recent, use_container_width=True, hide_index=True)
                 
     with tab2:
         st.subheader("Mi Resumen de Actividad")
@@ -200,6 +214,10 @@ if st.session_state.role == "Mentor":
 # ==========================================
 elif st.session_state.role == "Admin":
     st.header("Jaimelandia")
+
+    if st.button("🔄 Sincronizar con Google Sheets"):
+        st.cache_data.clear()
+        st.rerun()
     
     # Split the admin view into Visuals and Raw Data
     tab_progreso, tab_datos = st.tabs(["Progreso por Curso", "Auditoría de Datos"])
