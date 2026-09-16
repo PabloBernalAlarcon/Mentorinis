@@ -70,7 +70,7 @@ if st.session_state.role == "Mentor":
     current_mentor = st.session_state.current_user
     st.header(f"¿Qué desea hacer hoy, {current_mentor}?")
     
-    tab1, tab2 = st.tabs(["Registrar Reunión", "Ver Registro de Reuniones"])
+    tab1, tab2, tab3 = st.tabs(["Registrar Reunión", "Ver Registro de Reuniones", "Editar Reuniones"])
     
     with tab1:
         with st.container(border=True):
@@ -208,6 +208,75 @@ if st.session_state.role == "Mentor":
             else:
                 display_table = view_logs.sort_values(by="Fecha", ascending=False)[["Fecha", "Curso", "Tipo", "Estudiante"]]
                 st.dataframe(display_table, use_container_width=True, hide_index=True)
+
+    with tab3:
+        st.subheader("Editar un Registro Existente")
+
+        mentor_own_logs = logs_df[logs_df["Mentor"] == current_mentor].sort_values(by="Fecha", ascending=False)
+
+        if mentor_own_logs.empty:
+            st.info("Aún no has registrado reuniones para editar.")
+        else:
+            def format_log_option(idx):
+                row = logs_df.loc[idx]
+                comentario = str(row["Comentarios"]) if pd.notna(row["Comentarios"]) else ""
+                preview = f" — {comentario[:40]}{'...' if len(comentario) > 40 else ''}" if comentario else ""
+                return f"{row['Fecha']} | {row['Curso']} | {row['Tipo']} | {row['Estudiante']}{preview}"
+
+            selected_idx = st.selectbox(
+                "Selecciona el registro a editar",
+                options=mentor_own_logs.index.tolist(),
+                format_func=format_log_option,
+                key="edit_record_selector"
+            )
+
+            current_row = logs_df.loc[selected_idx]
+
+            with st.container(border=True):
+                ecol1, ecol2, ecol3, ecol4 = st.columns(4)
+
+                with ecol1:
+                    edit_dept_list = directory_df[directory_df["Mentor"] == current_mentor]["Curso"].unique()
+                    dept_index = list(edit_dept_list).index(current_row["Curso"]) if current_row["Curso"] in edit_dept_list else 0
+                    edit_dept = st.selectbox("1. Curso", edit_dept_list, index=dept_index, key=f"edit_dept_{selected_idx}")
+
+                with ecol2:
+                    tipo_options = ["Estudiante", "Familia", "Titular"]
+                    tipo_index = tipo_options.index(current_row["Tipo"]) if current_row["Tipo"] in tipo_options else 0
+                    edit_tipo = st.selectbox("2. Tipo de Reunión", tipo_options, index=tipo_index, key=f"edit_tipo_{selected_idx}")
+
+                with ecol3:
+                    if edit_tipo == "Titular":
+                        edit_client = st.selectbox("3. Estudiante", ["N/A (Aplica a todo el curso)"], disabled=True, key=f"edit_client_na_{selected_idx}")
+                    else:
+                        edit_client_list = directory_df[
+                            (directory_df["Mentor"] == current_mentor) &
+                            (directory_df["Curso"] == edit_dept)
+                        ]["Estudiante"].unique()
+                        client_index = list(edit_client_list).index(current_row["Estudiante"]) if current_row["Estudiante"] in edit_client_list else 0
+                        edit_client = st.selectbox("3. Estudiante", edit_client_list, index=client_index, key=f"edit_client_{selected_idx}")
+
+                with ecol4:
+                    edit_date = st.date_input("4. Fecha", value=pd.to_datetime(current_row["Fecha"]).date(), key=f"edit_date_{selected_idx}")
+
+                edit_comments = st.text_area(
+                    "5. Comentarios (Opcional)",
+                    value=current_row["Comentarios"] if pd.notna(current_row["Comentarios"]) else "",
+                    key=f"edit_comments_{selected_idx}"
+                )
+
+                if st.button("Guardar Cambios", type="primary", key=f"save_edit_{selected_idx}"):
+                    logs_df.loc[selected_idx, "Fecha"] = edit_date.strftime("%Y-%m-%d")
+                    logs_df.loc[selected_idx, "Curso"] = edit_dept
+                    logs_df.loc[selected_idx, "Tipo"] = edit_tipo
+                    logs_df.loc[selected_idx, "Estudiante"] = edit_client
+                    logs_df.loc[selected_idx, "Comentarios"] = edit_comments
+
+                    conn.update(worksheet="Sheet2", data=logs_df)
+                    st.cache_data.clear()
+
+                    st.success("¡Registro actualizado exitosamente!")
+                    st.rerun()
 
 # ==========================================
 # --- 4. ADMIN WORKSPACE (Jaimelandia) ---
