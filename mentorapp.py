@@ -97,7 +97,14 @@ if st.session_state.role == "Mentor":
                 meeting_date = st.date_input("4. Fecha", value=date.today())
 
             # --- NEW: Comments Section ---
-            meeting_comments = st.text_area("5. Comentarios (Opcional)", placeholder="Escribe aquí los acuerdos principales, observaciones o notas de la reunión...")
+            if "comment_box_suffix" not in st.session_state:
+                st.session_state.comment_box_suffix = 0
+
+            meeting_comments = st.text_area(
+                "5. Comentarios (Opcional)",
+                placeholder="Escribe aquí los acuerdos principales, observaciones o notas de la reunión...",
+                key=f"meeting_comments_{st.session_state.comment_box_suffix}"
+            )
 
             if st.button("Guardar Reunión", type="primary"):
                 new_entry = pd.DataFrame([{
@@ -108,14 +115,18 @@ if st.session_state.role == "Mentor":
                     "Tipo": meeting_type,
                     "Comentarios": meeting_comments # Saving the new comments
                 }])
-                
+
                 logs_df = pd.concat([logs_df, new_entry], ignore_index=True)
                 conn.update(worksheet="Sheet2", data=logs_df)
                 st.cache_data.clear()
-                
+
                 st.success(f"¡Reunión de {meeting_type} registrada exitosamente!")
                 st.balloons()
-                
+
+                # Clear the comments box for the next entry by swapping to a fresh widget key
+                st.session_state.comment_box_suffix += 1
+                st.rerun()
+
         # --- NEW: "Recent Logs" Display ---
         st.divider()
         st.markdown("##### 🕒 Tus últimos 5 registros")
@@ -276,6 +287,21 @@ if st.session_state.role == "Mentor":
                     st.cache_data.clear()
 
                     st.success("¡Registro actualizado exitosamente!")
+                    st.balloons()
+                    st.rerun()
+
+                st.divider()
+                st.markdown("**Zona de peligro**")
+                confirm_delete = st.checkbox(
+                    "Confirmo que deseo eliminar este registro de forma permanente",
+                    key=f"confirm_delete_{selected_idx}"
+                )
+                if st.button("🗑️ Eliminar Registro", key=f"delete_edit_{selected_idx}", disabled=not confirm_delete):
+                    logs_df = logs_df.drop(index=selected_idx)
+                    conn.update(worksheet="Sheet2", data=logs_df)
+                    st.cache_data.clear()
+
+                    st.success("Registro eliminado exitosamente.")
                     st.rerun()
 
 # ==========================================
