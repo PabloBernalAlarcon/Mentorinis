@@ -70,9 +70,19 @@ if st.session_state.role == "Mentor":
     current_mentor = st.session_state.current_user
     st.header(f"¿Qué desea hacer hoy, {current_mentor}?")
     
-    tab1, tab2, tab3 = st.tabs(["Registrar Reunión", "Ver Registro de Reuniones", "Editar Reuniones"])
-    
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Registrar Reunión",
+        "Ver Registro de Reuniones",
+        "Comentarios de Estudiantes",
+        "Editar Reuniones"
+    ])
+
     with tab1:
+        if st.session_state.get("new_meeting_feedback"):
+            st.success(st.session_state.new_meeting_feedback)
+            st.balloons()
+            st.session_state.new_meeting_feedback = None
+
         with st.container(border=True):
             col1, col2, col3, col4 = st.columns(4)
             
@@ -120,8 +130,9 @@ if st.session_state.role == "Mentor":
                 conn.update(worksheet="Sheet2", data=logs_df)
                 st.cache_data.clear()
 
-                st.success(f"¡Reunión de {meeting_type} registrada exitosamente!")
-                st.balloons()
+                # Queue the success message + balloons for display after the rerun below,
+                # since triggering them right before st.rerun() cuts off the balloons animation.
+                st.session_state.new_meeting_feedback = f"¡Reunión de {meeting_type} registrada exitosamente!"
 
                 # Clear the comments box for the next entry by swapping to a fresh widget key
                 st.session_state.comment_box_suffix += 1
@@ -163,13 +174,13 @@ if st.session_state.role == "Mentor":
             ].copy()
 
         # --- 3. Macro View: Titular Meetings ---
-        st.markdown("##### Progreso con Director de Grupo (Por Curso)")
+        st.markdown("##### Progreso con Titular (Por Curso)")
         display_cursos = view_dir["Curso"].unique()
         titular_cols = st.columns(len(display_cursos) if len(display_cursos) > 0 else 1)
-        
+
         for idx, curso in enumerate(display_cursos):
             with titular_cols[idx]:
-                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Director de Grupo")]
+                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Titular")]
                 hr_count = len(hr_logs)
                 
                 with st.container(border=True):
@@ -221,7 +232,70 @@ if st.session_state.role == "Mentor":
                 st.dataframe(display_table, use_container_width=True, hide_index=True)
 
     with tab3:
+        st.subheader("📝 Historial de Comentarios por Estudiante")
+        st.caption("Revisa aquí todos los comentarios registrados para prepararte antes de tu próxima reunión.")
+
+        comments_cursos = directory_df[directory_df["Mentor"] == current_mentor]["Curso"].unique()
+        ccol1, ccol2 = st.columns([1, 2])
+
+        with ccol1:
+            comments_filter = st.selectbox(
+                "Filtrar por Curso", ["Todos"] + list(comments_cursos), key="comments_course_filter"
+            )
+
+        with ccol2:
+            comments_search = st.text_input(
+                "🔎 Buscar estudiante", placeholder="Escribe un nombre para filtrar...", key="comments_search"
+            )
+
+        if comments_filter == "Todos":
+            comments_dir = directory_df[directory_df["Mentor"] == current_mentor]
+            comments_logs = logs_df[logs_df["Mentor"] == current_mentor].copy()
+        else:
+            comments_dir = directory_df[
+                (directory_df["Mentor"] == current_mentor) &
+                (directory_df["Curso"] == comments_filter)
+            ]
+            comments_logs = logs_df[
+                (logs_df["Mentor"] == current_mentor) &
+                (logs_df["Curso"] == comments_filter)
+            ].copy()
+
+        comments_logs["Comentarios"] = comments_logs["Comentarios"].fillna("").astype(str)
+
+        comments_students = sorted(comments_dir["Estudiante"].dropna().unique().tolist())
+        if comments_search:
+            comments_students = [s for s in comments_students if comments_search.lower() in s.lower()]
+
+        if not comments_students:
+            st.info("No hay estudiantes que coincidan con tu búsqueda.")
+        else:
+            for s_name in comments_students:
+                s_comment_logs = comments_logs[
+                    (comments_logs["Estudiante"] == s_name) &
+                    (comments_logs["Comentarios"].str.strip() != "")
+                ].sort_values(by="Fecha", ascending=False)
+
+                with st.expander(f"{s_name} ({len(s_comment_logs)} comentario{'s' if len(s_comment_logs) != 1 else ''})"):
+                    if s_comment_logs.empty:
+                        st.caption("Sin comentarios registrados todavía.")
+                    else:
+                        for _, row in s_comment_logs.iterrows():
+                            st.markdown(f"**{row['Fecha']}** · _{row['Tipo']}_")
+                            st.write(row["Comentarios"])
+                            st.divider()
+
+    with tab4:
         st.subheader("Editar un Registro Existente")
+
+        if st.session_state.get("edit_feedback"):
+            st.success(st.session_state.edit_feedback)
+            st.balloons()
+            st.session_state.edit_feedback = None
+
+        if st.session_state.get("delete_feedback"):
+            st.success(st.session_state.delete_feedback)
+            st.session_state.delete_feedback = None
 
         mentor_own_logs = logs_df[logs_df["Mentor"] == current_mentor].sort_values(by="Fecha", ascending=False)
 
@@ -286,8 +360,9 @@ if st.session_state.role == "Mentor":
                     conn.update(worksheet="Sheet2", data=logs_df)
                     st.cache_data.clear()
 
-                    st.success("¡Registro actualizado exitosamente!")
-                    st.balloons()
+                    # Queue the success message + balloons for display after the rerun below,
+                    # since triggering them right before st.rerun() cuts off the balloons animation.
+                    st.session_state.edit_feedback = "¡Registro actualizado exitosamente!"
                     st.rerun()
 
                 st.divider()
@@ -301,7 +376,7 @@ if st.session_state.role == "Mentor":
                     conn.update(worksheet="Sheet2", data=logs_df)
                     st.cache_data.clear()
 
-                    st.success("Registro eliminado exitosamente.")
+                    st.session_state.delete_feedback = "Registro eliminado exitosamente."
                     st.rerun()
 
 # ==========================================
@@ -339,7 +414,7 @@ elif st.session_state.role == "Admin":
             with st.expander(f"📁 Curso: {curso}", expanded=False):
                 
                 # --- 1. Titular Progress (Top of the course folder) ---
-                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Director de Grupo")]
+                hr_logs = view_logs[(view_logs["Curso"] == curso) & (view_logs["Tipo"] == "Titular")]
                 hr_count = len(hr_logs)
                 
                 st.markdown("##### 🏫 Progreso con Titular")
